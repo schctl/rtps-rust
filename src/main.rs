@@ -1,5 +1,3 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
-use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
@@ -16,7 +14,7 @@ fn sender() -> anyhow::Result<()> {
     let domain = RTPSDomain::new()?;
 
     loop {
-        domain.send_message_multicast(EntityDiscovery(Entity {
+        domain.send_message_discovery(EntityDiscovery(Entity {
             id: 2,
             kind: entity::Type::Reader("/hello".to_owned()),
         }).into())?;
@@ -29,7 +27,7 @@ fn listener() -> anyhow::Result<()> {
     let domain = RTPSDomain::new()?;
 
     loop {
-        if let Ok(Some((addr, msg))) = domain.try_recv_message() {
+        if let Ok(Some((addr, msg))) = domain.try_recv_message_discovery() {
             println!("{addr}: {msg:?}");
         }
     }
@@ -38,7 +36,7 @@ fn listener() -> anyhow::Result<()> {
 fn main() {
     println!("Hello, world!");
 
-    if std::env::args().nth(1).unwrap().to_lowercase() == "--listener" {
+    if std::env::args().nth(1).unwrap().to_lowercase() == "--client" {
         listener().unwrap();
     } else if std::env::args().nth(1).unwrap().to_lowercase() == "--server" {
         sender().unwrap();

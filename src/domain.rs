@@ -1,62 +1,95 @@
+use std::mem::MaybeUninit;
 use std::time::Duration;
 use std::ops::Range;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
+use socket2::{Domain, Protocol, SockAddr, Socket};
 
 use anyhow::bail;
 
 use crate::message::Message;
 
 lazy_static::lazy_static! {
-    static ref MULTICAST_GROUP: Ipv4Addr = "224.0.0.23".parse().unwrap();
+    // multicast interfaces
+    static ref MULTICAST_GROUP: Ipv4Addr = [224, 0, 0, 23].into();
+    static ref MULTICAST_INTF: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
+    static ref MULTICAST_PORT: u16 = 7399;
+
+    // unicast interfaces
     static ref INTERFACE: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
     static ref PORT_RANGE: Range<u16> = 7400..8000;
 }
 
+fn addr<A: Into<Ipv4Addr>>(ip_v4: A, port: u16) -> SockAddr {
+    SocketAddrV4::new(ip_v4.into(), port).into()
+}
+
 pub struct RTPSDomain {
-    socket: UdpSocket,
+    socket: Socket,
+    discovery_socket: Socket 
 }
 
 impl RTPSDomain {
-    pub fn new() -> anyhow::Result<Self> {
-        let mut socket = None;
+    fn make_socket() -> anyhow::Result<Socket> {
+        let socket = Socket::new(Domain::IPV4, socket2::Type::DGRAM, Some(Protocol::UDP))?;
+        socket.set_read_timeout(Some(Duration::from_millis(100)))?;
+        Ok(socket)
+    }
+
+    fn setup_sock_unicast() -> anyhow::Result<Socket> {
+        let socket = Self::make_socket()?;
 
         for i in PORT_RANGE.clone() {
-            if let Ok(s) = UdpSocket::bind(SocketAddrV4::new(*INTERFACE, i)) {
-                socket = Some(s);
+            if socket.bind(&addr(*INTERFACE, i)).is_ok() {
                 break;
             }
         }
 
-        let socket = socket.unwrap(); // Eh
+        let _ = socket.local_addr()?;
 
-        socket.set_read_timeout(Some(Duration::from_millis(100)))?;
-        socket.join_multicast_v4(&MULTICAST_GROUP, &INTERFACE)?;
+        Ok(socket)
+    }
+
+    fn setup_sock_multicast() -> anyhow::Result<Socket> {
+        let socket = Self::make_socket()?;
+        let multicast_interface = addr(*MULTICAST_INTF, *MULTICAST_PORT);
+
+        // socket should be READ-only
+        socket.set_reuse_port(true)?;
+        socket.bind(&multicast_interface)?;
+        socket.join_multicast_v4(&MULTICAST_GROUP, &MULTICAST_INTF)?;
+
+        Ok(socket)
+    }
+
+    pub fn new() -> anyhow::Result<Self> {
+        let socket = Self::setup_sock_unicast()?;
+        let discovery_socket = Self::setup_sock_multicast()?;
 
         Ok(Self {
-            socket
+            socket,
+            discovery_socket
         })
     }
 
-    pub fn socket_ref(&self) -> &UdpSocket {
-        &self.socket
-    }
-
-    pub fn send_message<T: ToSocketAddrs>(&self, msg: Message, to: T) -> anyhow::Result<()> {
-        self.socket.send_to(&postcard::to_vec::<Message, 128>(&msg)?, to).unwrap();
+    pub fn send_message<T: Into<SockAddr>>(&self, msg: Message, to: T) -> anyhow::Result<()> {
+        self.socket.send_to(&postcard::to_vec::<Message, 128>(&msg)?, &to.into())?;
         Ok(())
     }
 
-    pub fn send_message_multicast(&self, msg: Message, port: u16) -> anyhow::Result<()> {
-        self.send_message(msg, SocketAddrV4::new(*INTERFACE, port))
+    pub fn send_message_discovery(&self, msg: Message) -> anyhow::Result<()> {
+        self.send_message(msg, addr(*MULTICAST_GROUP, *MULTICAST_PORT))
     }
 
-    pub fn try_recv_message(&self) -> anyhow::Result<Option<(SocketAddr, Message)>> {
-        let mut data = [0; 128];
+    fn try_recv_message_intl(&self, socket: &Socket) -> anyhow::Result<Option<(SocketAddr, Message)>> {
+        let mut data = [const { MaybeUninit::uninit() }; 128];
     
-        match self.socket.recv_from(&mut data) {
+        match socket.recv_from(&mut data) {
             Ok((_, addr)) => {
+                let data = unsafe { core::mem::transmute::<_, [u8; 128]>(data) };
+
                 if let Ok(msg) = postcard::from_bytes::<Message>(&data) {
-                    return Ok(Some((addr, msg)));
+                    return Ok(Some((addr.as_socket().unwrap(), msg)));
                 }
             }
             Err(err) => {
@@ -65,5 +98,13 @@ impl RTPSDomain {
         }
 
         Ok(None)
+    }
+
+    pub fn try_recv_message(&self) -> anyhow::Result<Option<(SocketAddr, Message)>> {
+        self.try_recv_message_intl(&self.socket)
+    }
+
+    pub fn try_recv_message_discovery(&self) -> anyhow::Result<Option<(SocketAddr, Message)>> {
+        self.try_recv_message_intl(&self.discovery_socket)
     }
 }
