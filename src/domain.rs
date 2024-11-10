@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
-use std::time::Duration;
-use std::ops::Range;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::ops::Range;
+use std::time::Duration;
 
 use socket2::{Domain, Protocol, SockAddr, Socket};
 
@@ -24,12 +24,13 @@ fn addr<A: Into<Ipv4Addr>>(ip_v4: A, port: u16) -> SockAddr {
     SocketAddrV4::new(ip_v4.into(), port).into()
 }
 
-pub struct RTPSDomain {
+#[derive(Debug)]
+pub struct DomainConnection {
     socket: Socket,
-    discovery_socket: Socket 
+    discovery_socket: Socket,
 }
 
-impl RTPSDomain {
+impl DomainConnection {
     fn make_socket() -> anyhow::Result<Socket> {
         let socket = Socket::new(Domain::IPV4, socket2::Type::DGRAM, Some(Protocol::UDP))?;
         socket.set_read_timeout(Some(Duration::from_millis(100)))?;
@@ -68,12 +69,13 @@ impl RTPSDomain {
 
         Ok(Self {
             socket,
-            discovery_socket
+            discovery_socket,
         })
     }
 
     pub fn send_message<T: Into<SockAddr>>(&self, msg: Message, to: T) -> anyhow::Result<()> {
-        self.socket.send_to(&postcard::to_vec::<Message, 128>(&msg)?, &to.into())?;
+        self.socket
+            .send_to(&postcard::to_vec::<Message, 128>(&msg)?, &to.into())?;
         Ok(())
     }
 
@@ -81,9 +83,12 @@ impl RTPSDomain {
         self.send_message(msg, addr(*MULTICAST_GROUP, *MULTICAST_PORT))
     }
 
-    fn try_recv_message_intl(&self, socket: &Socket) -> anyhow::Result<Option<(SocketAddr, Message)>> {
+    fn try_recv_message_intl(
+        &self,
+        socket: &Socket,
+    ) -> anyhow::Result<Option<(SocketAddr, Message)>> {
         let mut data = [const { MaybeUninit::uninit() }; 128];
-    
+
         match socket.recv_from(&mut data) {
             Ok((_, addr)) => {
                 let data = unsafe { core::mem::transmute::<_, [u8; 128]>(data) };

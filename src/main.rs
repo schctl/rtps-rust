@@ -1,9 +1,10 @@
 use std::thread;
 use std::time::Duration;
 
-use domain::RTPSDomain;
+use domain::DomainConnection;
 use entity::Entity;
-use message::EntityDiscovery;
+use message::Message;
+use participant::{RTPSParticipant, RemoteParticipant};
 
 mod domain;
 mod entity;
@@ -11,25 +12,29 @@ mod message;
 mod participant;
 
 fn sender() -> anyhow::Result<()> {
-    let domain = RTPSDomain::new()?;
+    let domain = DomainConnection::new()?;
+    let mut participant = RTPSParticipant::new(domain);
+
+    let hello_w = participant.new_writer("/hello");
 
     loop {
-        domain.send_message_discovery(EntityDiscovery(Entity {
-            id: 2,
-            kind: entity::Type::Reader("/hello".to_owned()),
-        }).into())?;
+        participant.advertise_entities()?;
 
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(Duration::from_millis(2_000));
     }
 }
 
 fn listener() -> anyhow::Result<()> {
-    let domain = RTPSDomain::new()?;
+    let domain = DomainConnection::new()?;
+    let mut participant = RTPSParticipant::new(domain);
+
+    let hello_r = participant.new_reader("/hello");
 
     loop {
-        if let Ok(Some((addr, msg))) = domain.try_recv_message_discovery() {
-            println!("{addr}: {msg:?}");
-        }
+        participant.try_process_advertisements()?;
+        println!("{participant:?}");
+
+        thread::sleep(Duration::from_millis(1_000));
     }
 }
 

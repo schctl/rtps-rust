@@ -1,12 +1,9 @@
-use serde::{Deserialize, Serialize};
 use derive_more::From;
+use serde::{Deserialize, Serialize};
 
-use crate::entity::Entity;
+use crate::participant::RemoteParticipant;
 
 #[derive(Debug, Clone, Deserialize, Serialize, From)]
 pub enum Message {
-    EntityDiscovery(EntityDiscovery)
+    ParticipantRegister(RemoteParticipant),
 }
-
-#[derive(Debug, Clone, Deserialize, Serialize, From)]
-pub struct EntityDiscovery(pub Entity);
