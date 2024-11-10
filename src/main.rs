@@ -3,58 +3,36 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
-lazy_static::lazy_static! {
-    static ref MULTICAST_GROUP: Ipv4Addr = "224.0.1.23".parse().unwrap();
-    static ref INTERFACE: Ipv4Addr = "0.0.0.0".parse().unwrap();
-    static ref LISTEN_PORT: u16 = 3589;
-    static ref SEND_PORT: u16 = 3596;
-}
+use domain::RTPSDomain;
+use entity::Entity;
+use message::EntityDiscovery;
 
-fn make_socket(port: u16) -> anyhow::Result<UdpSocket> {
-    let socket = UdpSocket::bind(SocketAddrV4::new(*INTERFACE, port))?;
-    socket.set_read_timeout(Some(Duration::from_millis(100)))?;
-    Ok(socket)
-}
+mod domain;
+mod entity;
+mod message;
+mod participant;
 
 fn sender() -> anyhow::Result<()> {
-    let socket = make_socket(*SEND_PORT)?;
-    
-    socket.join_multicast_v4(&MULTICAST_GROUP, &INTERFACE)?;
+    let domain = RTPSDomain::new()?;
 
     loop {
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
+        domain.send_message_multicast(EntityDiscovery(Entity {
+            id: 2,
+            kind: entity::Type::Reader("/hello".to_owned()),
+        }).into())?;
 
-        socket.send_to(input.as_bytes(), SocketAddrV4::new(*INTERFACE, *LISTEN_PORT))?;
         thread::sleep(Duration::from_millis(500));
     }
 }
 
 fn listener() -> anyhow::Result<()> {
-    let socket = make_socket(*LISTEN_PORT)?;
-
-    socket.join_multicast_v4(&MULTICAST_GROUP, &INTERFACE)?;
+    let domain = RTPSDomain::new()?;
 
     loop {
-        let mut data_buf = [0; 256];
-
-        match socket.recv_from(&mut data_buf) {
-            Ok((len, addr)) => {
-                println!(
-                    "got data: {} from: {}",
-                    String::from_utf8_lossy(&data_buf[..len]),
-                    addr
-                );
-            }
-            Err(err) => {
-                match err.kind() {
-                    _ => {}
-                }
-            }
+        if let Ok(Some((addr, msg))) = domain.try_recv_message() {
+            println!("{addr}: {msg:?}");
         }
     }
-
-    Ok(())
 }
 
 fn main() {
