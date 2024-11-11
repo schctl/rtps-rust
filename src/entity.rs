@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::message::Message;
 
-type Id = u32;
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Type {
     Writer(String),

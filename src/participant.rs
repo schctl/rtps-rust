@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -66,10 +65,10 @@ impl RTPSParticipant {
             self.remote_participants.clear();
         }
 
-        if let Ok(Some((addr, msg))) = self.domain.try_recv_message_discovery() {
-            if let Message::ParticipantRegister(pr) = msg {
-                self.remote_participants.insert(addr.into(), pr);
-            }
+        if let Ok(Some((addr, Message::ParticipantRegister(pr)))) =
+            self.domain.try_recv_message_discovery()
+        {
+            self.remote_participants.insert(addr.into(), pr);
         }
 
         Ok(())
@@ -89,8 +88,7 @@ impl RTPSParticipant {
             if let Some((s, _)) = self.remote_participants.iter().find(|(_, p)| {
                 p.entities
                     .iter()
-                    .find(|entity| &entity.reverse() == writer.0)
-                    .is_some()
+                    .any(|entity| &entity.reverse() == writer.0)
             }) {
                 if let Some(cache) = command_queue.get_mut(s) {
                     cache.extend_from_slice(&state.message_cache);

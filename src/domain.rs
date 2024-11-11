@@ -91,7 +91,8 @@ impl DomainConnection {
 
         match socket.recv_from(&mut data) {
             Ok((bytes, addr)) => {
-                let data = unsafe { core::mem::transmute::<_, [u8; 128]>(data) };
+                let data =
+                    unsafe { core::mem::transmute::<[MaybeUninit<u8>; 128], [u8; 128]>(data) };
 
                 if let Ok(msg) = postcard::from_bytes::<Message>(&data) {
                     return Ok(Some((addr.as_socket().unwrap(), msg)));
