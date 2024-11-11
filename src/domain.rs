@@ -90,11 +90,14 @@ impl DomainConnection {
         let mut data = [const { MaybeUninit::uninit() }; 128];
 
         match socket.recv_from(&mut data) {
-            Ok((_, addr)) => {
+            Ok((bytes, addr)) => {
                 let data = unsafe { core::mem::transmute::<_, [u8; 128]>(data) };
 
                 if let Ok(msg) = postcard::from_bytes::<Message>(&data) {
                     return Ok(Some((addr.as_socket().unwrap(), msg)));
+                } else {
+                    let addr = addr.as_socket_ipv4().unwrap();
+                    tracing::error!("unable to process {bytes} bytes from {addr}. dropping.");
                 }
             }
             Err(err) => {

@@ -1,10 +1,9 @@
+use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
 
 use domain::DomainConnection;
-use entity::Entity;
-use message::Message;
-use participant::{RTPSParticipant, RemoteParticipant};
+use participant::RTPSParticipant;
 
 mod domain;
 mod entity;
@@ -17,10 +16,33 @@ fn sender() -> anyhow::Result<()> {
 
     let hello_w = participant.new_writer("/hello");
 
+    let (tx, rx) = channel();
+
+    std::thread::spawn(move || {
+        let mut buf = String::new();
+        let io = std::io::stdin();
+
+        loop {
+            if io.read_line(&mut buf).is_ok() {
+                if let Err(e) = tx.send(buf.clone()) {
+                    tracing::error!("{e}");
+                }
+
+                buf.clear();
+            }
+        }
+    });
+
     loop {
         participant.advertise_entities()?;
+        participant.try_process_advertisements()?;
+        participant.process_all()?;
 
-        thread::sleep(Duration::from_millis(2_000));
+        if let Ok(line) = rx.try_recv() {
+            hello_w.lock().unwrap().write(line);
+        }
+
+        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -31,15 +53,20 @@ fn listener() -> anyhow::Result<()> {
     let hello_r = participant.new_reader("/hello");
 
     loop {
+        participant.advertise_entities()?;
         participant.try_process_advertisements()?;
-        println!("{participant:?}");
+        participant.process_all()?;
 
-        thread::sleep(Duration::from_millis(1_000));
+        for m in hello_r.lock().unwrap().pop() {
+            println!("{m:?}");
+        }
+
+        thread::sleep(Duration::from_millis(50));
     }
 }
 
 fn main() {
-    println!("Hello, world!");
+    tracing_subscriber::fmt::init();
 
     if std::env::args().nth(1).unwrap().to_lowercase() == "--client" {
         listener().unwrap();

@@ -1,5 +1,5 @@
 [package]
-name = "rtps-Python"
+name = "ros3"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,3 +12,6 @@ postcard = "1"
 derive_more = { version = "1.0.0", features = ["from"] }
 
 socket2 = { version = "0.5", features = ["all"] }
+
+tracing = "0.1"
+tracing-subscriber = "0.3"

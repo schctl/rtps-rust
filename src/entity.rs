@@ -29,22 +29,34 @@ impl Entity {
             kind: Type::Writer(topic.to_string()),
         }
     }
+
+    pub fn reverse(&self) -> Self {
+        match &self.kind {
+            Type::Reader(t) => Self::new_writer(t),
+            Type::Writer(t) => Self::new_reader(t),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct WriterState {
-    message_cache: Vec<Message>,
+    pub(crate) message_cache: Vec<Message>,
+    topic: String,
 }
 
 impl WriterState {
-    pub(crate) fn new() -> SharedWriterState {
+    pub(crate) fn new<T: ToString>(topic: T) -> SharedWriterState {
         Arc::new(Mutex::new(WriterState {
             message_cache: Vec::new(),
+            topic: topic.to_string(),
         }))
     }
 
-    pub fn write(&mut self, message: &Message) {
-        self.message_cache.push(message.clone());
+    pub fn write<T: ToString>(&mut self, data: T) {
+        self.message_cache.push(Message::Topic {
+            topic: self.topic.clone(),
+            data: data.to_string(),
+        });
     }
 
     pub fn clear(&mut self) {
@@ -54,7 +66,7 @@ impl WriterState {
 
 #[derive(Debug, Clone)]
 pub struct ReaderState {
-    message_cache: Vec<Message>,
+    pub(crate) message_cache: Vec<Message>,
 }
 
 impl ReaderState {
